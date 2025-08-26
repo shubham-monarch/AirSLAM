@@ -13,3 +13,5 @@ weights/*
 debug/*
 *.so
 */__pycache__/*
+
+.venv
