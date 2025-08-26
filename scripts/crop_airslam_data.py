@@ -27,6 +27,18 @@ from typing import Iterable, Iterator, List, Optional, Tuple
 
 from PIL import Image
 from tqdm import tqdm
+import logging
+import shutil
+
+# Logger and colored warnings
+LOGGER = logging.getLogger(__name__)
+import coloredlogs
+coloredlogs.install(
+    level='INFO',
+    fmt='%(asctime)s - %(levelname)s - %(message)s',
+    level_styles={'WARNING': {'color': 'yellow', 'bold': True}},
+    field_styles={'asctime': {'color': 'cyan'}, 'levelname': {'bold': True}}
+)
 
 
 def list_pngs(root: Path) -> Iterator[Path]:
@@ -128,7 +140,7 @@ def worker_task(args: Tuple[str, str, float, int, bool]) -> Tuple[str, bool]:
 
 def process_all(
     input_dir: Path,
-    output_dir: Path,
+    base_output_dir: Path,
     input_dir_base: Path,
     workers: int,
     use_processes: bool,
@@ -137,6 +149,7 @@ def process_all(
     max_pending: int,
     max_files: Optional[int],
     crop_percentage: float,
+    overwrite: bool,
 ) -> None:
     """Main processing loop with a bounded queue of futures."""
     Executor = ProcessPoolExecutor if use_processes else ThreadPoolExecutor
@@ -145,9 +158,21 @@ def process_all(
     successes = 0
     failures = 0
 
+    # Handle overwrite behavior for output_dir when pre-existing content found
+    if base_output_dir.exists() and any(Path(base_output_dir).iterdir()):
+        if overwrite:
+            LOGGER.warning(f"⚠️  OVERWRITING EXISTING DIRECTORY: {base_output_dir}")
+            LOGGER.warning("All existing cropped images in this directory will be deleted!")
+            shutil.rmtree(base_output_dir)
+        else:
+            LOGGER.warning("⚠️  SKIPPING CROPPING: Output directory already exists and is not empty")
+            LOGGER.warning(f"Directory: {base_output_dir}")
+            LOGGER.warning("Use --overwrite flag to delete existing images and re-process")
+            return
+
     with Executor(max_workers=workers) as ex, tqdm(unit="img") as pbar:
         for img_path in list_pngs(input_dir):
-            out_path = resolve_output_path(img_path, input_dir, output_dir, input_dir_base)
+            out_path = resolve_output_path(img_path, input_dir, base_output_dir, input_dir_base)
 
             fut = ex.submit(
                 worker_task,
@@ -194,10 +219,15 @@ def parse_args() -> argparse.Namespace:
         help="Input directory containing images to crop (PNG files)",
     )
     parser.add_argument(
-        "--output-dir",
+        "--base-output-dir",
         type=Path,
         default=Path("data/cropped"),
-        help="Output directory for cropped images (PNG)",
+        help="Base output directory for cropped images (PNG)",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="If set, delete the output directory if it exists and is not empty",
     )
     parser.add_argument(
         "--input-dir-base",
@@ -258,10 +288,10 @@ def main() -> None:
     input_dir_base: Path = args.input_dir_base.expanduser().resolve()
 
     # Ensure output directory exists
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    args.base_output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Input directory: {args.input_dir}")
-    print(f"Output dir:      {args.output_dir}")
+    print(f"Output dir:      {args.base_output_dir}")
     print(f"Input dir base:  {input_dir_base}")
     print(f"Crop percentage: {args.crop_percentage}%")
     print(f"Workers:         {args.workers} ({'process' if args.processes else 'thread'})")
@@ -270,7 +300,7 @@ def main() -> None:
 
     process_all(
         input_dir=args.input_dir,
-        output_dir=args.output_dir,
+        base_output_dir=args.base_output_dir,
         input_dir_base=input_dir_base,
         workers=args.workers,
         use_processes=bool(args.processes),
@@ -279,6 +309,7 @@ def main() -> None:
         max_pending=int(args.max_pending),
         max_files=args.max_files,
         crop_percentage=float(args.crop_percentage),
+        overwrite=bool(getattr(args, 'overwrite', False)),
     )
 
 

@@ -18,6 +18,7 @@ usage() {
     echo "  --frame-step N       Extract every Nth frame (default: 10)"
     echo "  --crop-percentage P  Crop percentage for cropping script (default: 55.0)"
     echo "  --resolution W,H     Image resolution (default: 640,480)"
+    echo "  --overwrite          If set, overwrite existing extracted directory for this sequence"
     echo "  --help               Show this help message"
     echo ""
     echo "Example:"
@@ -31,6 +32,7 @@ OUTPUT_DIR="data"
 FRAME_STEP=10
 CROP_PERCENTAGE=55.0
 RESOLUTION="640,480"
+OVERWRITE=0
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -54,6 +56,10 @@ while [[ $# -gt 0 ]]; do
         --resolution)
             RESOLUTION="$2"
             shift 2
+            ;;
+        --overwrite)
+            OVERWRITE=1
+            shift 1
             ;;
         --help)
             usage
@@ -104,10 +110,11 @@ fi
 echo "Running extract_svo_frames.py..."
 python -m scripts.extract_svo_frames \
     --input-file "$SVO_FILE" \
-    --output-dir "$OUTPUT_DIR/uncropped" \
+    --base-output-dir "$OUTPUT_DIR/uncropped" \
     --svo-files-base "data/svo-files" \
     --frame-step "$FRAME_STEP" \
-    --resolution "$RESOLUTION"
+    --resolution "$RESOLUTION" \
+    $( [[ "$OVERWRITE" -eq 1 ]] && echo "--overwrite" )
 
 echo "Frame extraction completed successfully!"
 echo ""
@@ -142,7 +149,7 @@ echo "Running crop_airslam_data.py..."
 
 python -m scripts.crop_airslam_data \
     --input-dir "$EXTRACTED_DIR" \
-    --output-dir "$OUTPUT_DIR/cropped" \
+    --base-output-dir "$OUTPUT_DIR/cropped" \
     --crop-percentage "$CROP_PERCENTAGE"
 
 echo "Cropping completed successfully!"

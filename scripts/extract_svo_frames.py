@@ -6,6 +6,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+import shutil
 
 
 import cv2
@@ -14,6 +15,16 @@ from tqdm import tqdm
 import pyzed.sl as sl
 
 from .logger import LOGGER
+
+# Configure coloredlogs for better warning visibility
+import coloredlogs
+coloredlogs.install(
+    level='INFO',
+    logger=LOGGER,
+    fmt='%(asctime)s - %(levelname)s - %(message)s',
+    level_styles={'WARNING': {'color': 'yellow', 'bold': True}},
+    field_styles={'asctime': {'color': 'cyan'}, 'levelname': {'bold': True}}
+)
 
 
 
@@ -26,10 +37,10 @@ def parse_args(argv: list[str] | None = None):
         help="Path to the SVO file to extract frames from",
     )
     p.add_argument(
-        "--output-dir",
+        "--base-output-dir",
         default="data/uncropped",
         type=Path,
-        help="Output directory where frames will be written",
+        help="Base output directory where the frame extraction directory structure will be created",
     )
     p.add_argument(
         "--svo-files-base",
@@ -49,6 +60,11 @@ def parse_args(argv: list[str] | None = None):
         type=int,
         help="Extract every Nth frame (default: 10, meaning 1/10 of all frames)",
     )
+    p.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="If set, delete the output directory for this sequence if it already exists and is not empty",
+    )
     return p.parse_args(argv)
 
 
@@ -60,8 +76,8 @@ def ensure_cv2():  # pragma: no cover
         raise RuntimeError("OpenCV (cv2) is required to save images but is not installed.")
 
 
-def extract_frames(svo_file: Path, rel_path: Path, output_dir: Path, resolution: str = "640,480", frame_step: int = 10):
-    """Extract left and right images from *svo_file* into *output_dir / rel_path / cam0/data* and *cam1/data*"""
+def extract_frames(svo_file: Path, rel_path: Path, base_output_dir: Path, resolution: str = "640,480", frame_step: int = 10, overwrite: bool = False):
+    """Extract left and right images from *svo_file* into *base_output_dir / rel_path / cam0/data* and *cam1/data*"""
     ensure_cv2()
 
     LOGGER.info(f"Extracting frames from {svo_file}")
@@ -80,8 +96,23 @@ def extract_frames(svo_file: Path, rel_path: Path, output_dir: Path, resolution:
     if status != sl.ERROR_CODE.SUCCESS:  # type: ignore[attr-defined]
         raise RuntimeError(f"Failed to open {svo_file}: {status}")
 
-    # Prepare output directory structure: output_dir/rel_path/cam0/data and cam1/data
-    base_dir = (output_dir / rel_path).with_suffix("")  # drop .svo
+    # Prepare output directory structure: base_output_dir/rel_path/cam0/data and cam1/data
+    base_dir = (base_output_dir / rel_path).with_suffix("")  # drop .svo
+
+    # Handle existing directory state
+    if base_dir.exists():
+        # Directory exists and may contain previous extraction
+        if any(base_dir.iterdir()):
+            if overwrite:
+                LOGGER.warning(f"⚠️  OVERWRITING EXISTING DIRECTORY: {base_dir}")
+                LOGGER.warning("All existing frames in this directory will be deleted!")
+                shutil.rmtree(base_dir)
+            else:
+                LOGGER.warning(f"⚠️  SKIPPING EXTRACTION: Output directory already exists and is not empty")
+                LOGGER.warning(f"Directory: {base_dir}")
+                LOGGER.warning("Use --overwrite flag to delete existing frames and re-extract")
+                return 0
+
     cam0_dir = base_dir / "cam0" / "data"
     cam1_dir = base_dir / "cam1" / "data"
 
@@ -168,8 +199,9 @@ def main(argv: list[str] | None = None):
 
     # Resolve paths (they may be relative)
     input_file: Path = args.input_file.expanduser().resolve()
-    output_dir: Path = args.output_dir.expanduser().resolve()
+    base_output_dir: Path = args.base_output_dir.expanduser().resolve()
     svo_files_base: Path = args.svo_files_base.expanduser().resolve()
+    overwrite: bool = bool(getattr(args, "overwrite", False))
 
     # Check if input file exists and has .svo extension
     if not input_file.exists():
@@ -195,7 +227,7 @@ def main(argv: list[str] | None = None):
 
     start_time = time.perf_counter()
     try:
-        n_frames = extract_frames(input_file, Path(rel_path), output_dir, args.resolution, args.frame_step)
+        n_frames = extract_frames(input_file, Path(rel_path), base_output_dir, args.resolution, args.frame_step, overwrite)
     except Exception as exc:
         LOGGER.error(f"Failed to process {input_file}: {exc}")
         return
