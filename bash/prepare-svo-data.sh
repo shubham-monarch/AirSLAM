@@ -3,8 +3,42 @@
 # Prepare SVO Data Script
 # This script takes an SVO file as input, extracts frames using extract_svo_frames.py,
 # and then crops the images using crop_airslam_data.py
+#
+# IMPORTANT NOTES:
+# - This script MUST be run from the src/AirSLAM directory
+# - The script will automatically verify it's in the correct location
+# - Variable names have been updated for clarity:
+#   * SVO_FILES_BASE_DIR → UNCROPPED_INPUT_BASE_DIR
+#   * UNCROPPED_BASE_DIR → UNCROPPED_OUTPUT_BASE_DIR
+#   * CROPPED_BASE_DIR → CROPPED_OUTPUT_BASE_DIR
+#   * OUTPUT_DIR argument has been removed (use specific base dir arguments instead)
 
 set -e  # Exit on any error
+
+# Early directory check and virtual environment setup
+# Get the absolute path of the script directory and ensure we're in src/AirSLAM
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AIRSLAM_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Ensure we're running from the src/AirSLAM directory
+cd "$AIRSLAM_DIR"
+
+# Verify we're in the correct directory
+if [[ ! -f "CMakeLists.txt" ]] || [[ ! -d "scripts" ]] || [[ ! -d "bash" ]]; then
+    echo "Error: Script must be run from the src/AirSLAM directory"
+    echo "Expected to find CMakeLists.txt, scripts/, and bash/ directories"
+    echo "Current directory: $(pwd)"
+    exit 1
+fi
+
+# Set up virtual environment early
+if [[ -f ".venv/bin/activate" ]]; then
+    source .venv/bin/activate
+    echo "Activated virtual environment"
+else
+    echo "Warning: Virtual environment not found at .venv/bin/activate"
+    echo "Continuing with system Python..."
+fi
 
 # Function to print usage
 usage() {
@@ -28,8 +62,12 @@ usage() {
 
 # Default values
 SVO_FILE=""
-OUTPUT_DIR="data"
 FRAME_STEP=10
+
+UNCROPPED_INPUT_BASE_DIR="data/svo-files"
+UNCROPPED_OUTPUT_BASE_DIR="data/uncropped"
+CROPPED_OUTPUT_BASE_DIR="data/cropped"
+
 CROP_PERCENTAGE=55.0
 RESOLUTION="640,480"
 OVERWRITE=0
@@ -41,8 +79,16 @@ while [[ $# -gt 0 ]]; do
             SVO_FILE="$2"
             shift 2
             ;;
-        --output-dir)
-            OUTPUT_DIR="$2"
+        --uncropped-input-base-dir)
+            UNCROPPED_INPUT_BASE_DIR="$2"
+            shift 2
+            ;;
+        --uncropped-output-base-dir)
+            UNCROPPED_OUTPUT_BASE_DIR="$2"
+            shift 2
+            ;;
+        --cropped-output-base-dir)
+            CROPPED_OUTPUT_BASE_DIR="$2"
             shift 2
             ;;
         --frame-step)
@@ -71,101 +117,104 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Check if SVO file is provided
-if [[ -z "$SVO_FILE" ]]; then
-    echo "Error: --svo-file is required"
-    usage
-fi
 
-# Check if SVO file exists
-if [[ ! -f "$SVO_FILE" ]]; then
-    echo "Error: SVO file does not exist: $SVO_FILE"
-    exit 1
-fi
 
-# Get the absolute path of the script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-
-echo "=== Prepare SVO Data Script ==="
-echo "SVO File: $SVO_FILE"
-echo "Output Directory: $OUTPUT_DIR"
-echo "Frame Step: $FRAME_STEP"
-echo "Crop Percentage: $CROP_PERCENTAGE"
-echo "Resolution: $RESOLUTION"
-echo ""
+echo "===[prepare-svo-data.sh] Prepare SVO Data Script ==="
+echo "Running from: $(pwd)"
 
 # Step 1: Extract frames from SVO file
-echo "=== Step 1: Extracting frames from SVO file ==="
-cd "$PROJECT_ROOT"
+echo "===[prepare-svo-data.sh] Step 1: Extracting frames from SVO file ==="
 
-if [[ -f ".venv/bin/activate" ]]; then
-    source .venv/bin/activate
-    echo "Activated virtual environment"
-else
-    echo "Warning: Virtual environment not found at .venv/bin/activate"
-    echo "Continuing with system Python..."
-fi
-
-echo "Running extract_svo_frames.py..."
-python -m scripts.extract_svo_frames \
-    --input-file "$SVO_FILE" \
-    --base-output-dir "$OUTPUT_DIR/uncropped" \
-    --svo-files-base "data/svo-files" \
-    --frame-step "$FRAME_STEP" \
-    --resolution "$RESOLUTION" \
-    $( [[ "$OVERWRITE" -eq 1 ]] && echo "--overwrite" )
-
-echo "Frame extraction completed successfully!"
+echo "Running scripts/generate_uncropped_svo_frames.py..."
+echo "--input-file: $SVO_FILE"
+echo "--base-input-dir: $UNCROPPED_INPUT_BASE_DIR"
+echo "--base-output-dir: $UNCROPPED_OUTPUT_BASE_DIR"
+echo "--frame-step: $FRAME_STEP"
+echo "--crop-percentage: $CROP_PERCENTAGE"
+echo "--resolution: $RESOLUTION"
 echo ""
 
-# Step 2: Crop the extracted frames
-echo "=== Step 2: Cropping extracted frames ==="
+# Use a temp file to receive the output dir from the extractor
+OUTFILE="$(mktemp)"
 
-# Find the extracted folder (it should be under uncropped with the SVO file's relative path)
-SVO_BASENAME=$(basename "$SVO_FILE" .svo)
+python -m scripts.generate_uncropped_svo_frames \
+    --input-file "$SVO_FILE" \
+    --frame-step "$FRAME_STEP" \
+    --resolution "$RESOLUTION" \
+    --base-input-dir "$UNCROPPED_INPUT_BASE_DIR" \
+    --base-output-dir "$UNCROPPED_OUTPUT_BASE_DIR" \
+    --output-dir-outfile "$OUTFILE" \
+    $( [[ "$OVERWRITE" -eq 1 ]] && echo "--overwrite" )
 
-# Try to find the extracted folder
-EXTRACTED_DIR=""
-if [[ -d "$OUTPUT_DIR/uncropped/$SVO_BASENAME" ]]; then
-    EXTRACTED_DIR="$OUTPUT_DIR/uncropped/$SVO_BASENAME"
-else
-    # Try to find any directory under uncropped that might contain our frames
-    UNCROPPED_CONTENTS=$(find "$OUTPUT_DIR/uncropped" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
-    if [[ -n "$UNCROPPED_CONTENTS" ]]; then
-        EXTRACTED_DIR="$UNCROPPED_CONTENTS"
-    fi
-fi
+# Read back the directory
+UNCROPPED_OUTPUT_DIR="$(cat "$OUTFILE")"
+rm -f "$OUTFILE"
 
-if [[ -z "$EXTRACTED_DIR" ]]; then
-    echo "Error: Could not find extracted frames directory"
-    echo "Looking for directories in: $OUTPUT_DIR/uncropped"
-    ls -la "$OUTPUT_DIR/uncropped" 2>/dev/null || echo "Directory not found or empty"
+echo "Generated uncropped frames in: $UNCROPPED_OUTPUT_DIR"
+
+# Verify the output directory was created successfully
+if [[ -z "$UNCROPPED_OUTPUT_DIR" ]] || [[ ! -d "$UNCROPPED_OUTPUT_DIR" ]]; then
+    echo "Error: Failed to generate uncropped frames or directory not found"
     exit 1
 fi
 
-echo "Found extracted frames in: $EXTRACTED_DIR"
-echo "Running crop_airslam_data.py..."
 
-python -m scripts.crop_airslam_data \
-    --input-dir "$EXTRACTED_DIR" \
-    --base-output-dir "$OUTPUT_DIR/cropped" \
-    --crop-percentage "$CROP_PERCENTAGE"
+
+# Step 2: Crop the extracted frames
+echo "===[prepare-svo-data.sh] Step 2: Cropping extracted frames ==="
+
+# Use a temp file to receive the cropped output dir from the cropping script
+CROPPED_OUTFILE="$(mktemp)"
+
+echo "Running scripts/generate_cropped_svo_frames.py..."
+echo "--input-dir: $UNCROPPED_OUTPUT_DIR"
+echo "--base-input-dir: $UNCROPPED_OUTPUT_BASE_DIR"
+echo "--base-output-dir: $CROPPED_OUTPUT_BASE_DIR"
+echo "--crop-percentage: $CROP_PERCENTAGE"
+echo ""
+
+python -m scripts.generate_cropped_svo_frames \
+    --input-dir "$UNCROPPED_OUTPUT_DIR" \
+    --base-input-dir "$UNCROPPED_OUTPUT_BASE_DIR" \
+    --base-output-dir "$CROPPED_OUTPUT_BASE_DIR" \
+    --output-dir-outfile "$CROPPED_OUTFILE" \
+    $( [[ "$OVERWRITE" -eq 1 ]] && echo "--overwrite" )
+
+# Read back the cropped directory
+CROPPED_OUTPUT_DIR="$(cat "$CROPPED_OUTFILE")"
+rm -f "$CROPPED_OUTFILE"
+
+echo "Generated cropped frames in: $CROPPED_OUTPUT_DIR"
+
+# Verify the cropped output directory was created successfully
+if [[ -z "$CROPPED_OUTPUT_DIR" ]] || [[ ! -d "$CROPPED_OUTPUT_DIR" ]]; then
+    echo "Error: Failed to generate cropped frames or directory not found: $CROPPED_OUTPUT_DIR"
+    exit 1
+fi
 
 echo "Cropping completed successfully!"
 echo ""
 
-# Summary
-echo "=== Processing Complete ==="
-echo "Input SVO: $SVO_FILE"
-echo "Uncropped frames: $EXTRACTED_DIR"
-echo "Cropped frames: $OUTPUT_DIR/cropped"
+# Count images in both directories
+UNCROPPED_COUNT=$(find "$UNCROPPED_OUTPUT_DIR" -name "*.png" 2>/dev/null | wc -l)
+CROPPED_COUNT=$(find "$CROPPED_OUTPUT_DIR" -name "*.png" 2>/dev/null | wc -l)
 
-# Count the number of frames
-UNCROPPED_COUNT=$(find "$EXTRACTED_DIR" -name "*.png" 2>/dev/null | wc -l)
-CROPPED_COUNT=$(find "$OUTPUT_DIR/cropped" -name "*.png" 2>/dev/null | wc -l)
+# Display results in a table
+echo ""
+echo "+------------------+-------+"
+echo "| Type             | Count |"
+echo "+------------------+-------+"
+printf "| Uncroped Images  | %-5d |\n" "$UNCROPPED_COUNT"
+printf "| Cropped Images   | %-5d |\n" "$CROPPED_COUNT"
+echo "+------------------+-------+"
 
-echo "Uncropped images: $UNCROPPED_COUNT"
-echo "Cropped images: $CROPPED_COUNT"
+# Verify counts match
+if [[ "$UNCROPPED_COUNT" -ne "$CROPPED_COUNT" ]]; then
+    echo ""
+    echo "❌ ERROR: Image counts do not match!"
+    echo "Expected: $UNCROPPED_COUNT cropped images, found: $CROPPED_COUNT"
+    exit 1
+fi
+
 echo ""
 echo "✅ SVO data preparation completed successfully!"

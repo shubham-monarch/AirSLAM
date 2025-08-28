@@ -70,6 +70,14 @@ def parse_args(argv: list[str] | None = None):
         action="store_true",
         help="If set, delete the output directory for this sequence if it already exists and is not empty",
     )
+
+    # Robust machine-readable output for callers (e.g., bash)
+    p.add_argument(
+        "--output-dir-outfile",
+        type=Path,
+        default=Path("/tmp/airslam_output_dir.txt"),
+        help="File to write the resolved output directory path to (single line). Default: /tmp/airslam_output_dir.txt",
+    )
     return p.parse_args(argv)
 
 def extract_frames(
@@ -79,7 +87,8 @@ def extract_frames(
     resolution: str = "640,480",
     frame_step: int = 10,
     overwrite: bool = False,
-):
+) -> Path:
+
     """Extract left and right images from *svo_file* into *base_output_dir / rel_path / cam0/data* and *cam1/data*"""
 
     output_dir = base_output_dir / svo_file_path.relative_to(base_input_dir)
@@ -114,7 +123,7 @@ def extract_frames(
                 LOGGER.warning(f"⚠️  SKIPPING EXTRACTION: Output directory already exists and is not empty")
                 LOGGER.warning(f"Directory: {output_dir}")
                 LOGGER.warning("Use --overwrite flag to delete existing frames and re-extract")
-                return 0
+                return output_dir
 
     cam0_dir = output_dir / "cam0" / "data"
     cam1_dir = output_dir / "cam1" / "data"
@@ -194,7 +203,7 @@ def extract_frames(
             progress_it.close()
         zed.close()
 
-    return saved_frame_id
+    return output_dir
 
 
 def main(argv: list[str] | None = None):
@@ -205,13 +214,6 @@ def main(argv: list[str] | None = None):
         LOGGER.warning(f"{k}: {v}")
     LOGGER.warning("=======================")
 
-
-    # # Resolve paths (they may be relative)
-    # input_file: Path = args.input_file.expanduser().resolve()
-    # base_output_dir: Path = args.base_output_dir.expanduser().resolve()
-    # # svo_files_base: Path = args.svo_files_base.expanduser().resolve()
-    # overwrite: bool = bool(getattr(args, "overwrite", False))
-
     # Check if input file exists and has .svo extension
     if not args.input_file.exists():
         LOGGER.error(f"Input file does not exist: {input_file}")
@@ -221,22 +223,10 @@ def main(argv: list[str] | None = None):
         LOGGER.error(f"Input file must have .svo extension: {args.input_file}")
         return
 
-    # Find the relative path with respect to svo-files-base
-    # try:
-    #     # Calculate relative path from svo-files-base to the input file
-    #     rel_path = input_file.relative_to(svo_files_base)
-    #     # Remove the .svo extension to get the directory name
-    #     rel_path = rel_path.with_suffix("")
-    # except ValueError:
-    #     # If the input file is not under svo-files-base, use just the filename
-    #     LOGGER.warning(f"Input file {input_file} is not under {svo_files_base}. Using filename only.")
-    #     rel_path = Path(input_file.stem)
-
-    # LOGGER.info(f"Processing {input_file}")
 
     start_time = time.perf_counter()
     try:
-        n_frames = extract_frames(
+        output_dir = extract_frames(
             args.input_file,
             args.base_input_dir,
             args.base_output_dir,
@@ -249,11 +239,26 @@ def main(argv: list[str] | None = None):
         return
 
     duration = time.perf_counter() - start_time
-    fps = n_frames / duration if duration else 0
 
     LOGGER.info("=======================")
-    LOGGER.info(f"Done. Extracted {n_frames} frames in {duration:.1f}s ({fps:.1f} fps)")
+    LOGGER.info(f"Done. Extracted frames in {duration:.1f}s")
     LOGGER.info("=======================")
+
+    # Write the resolved output directory to an outfile (single line)
+    try:
+        # Delete existing file if it exists
+        if args.output_dir_outfile.exists():
+            args.output_dir_outfile.unlink()
+
+        # Ensure parent directory exists
+        args.output_dir_outfile.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write the output directory path
+        args.output_dir_outfile.write_text(str(output_dir))
+    except Exception as exc:
+        LOGGER.error(f"Failed to write output dir to {args.output_dir_outfile}: {exc}")
+
+    return output_dir
 
 
 if __name__ == "__main__":

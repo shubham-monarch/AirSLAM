@@ -2,6 +2,14 @@
 
 # Launch Visual Odometry Monarch Script
 # This script prepares SVO data and launches the monarch visual odometry node
+#
+# STEPS SUMMARY:
+# 1. Parse command line arguments (--svo-file, --frame-step)
+# 2. Validate SVO file existence and resolve absolute paths
+# 3. Prepare SVO data using prepare-svo-data.sh script
+# 4. Determine dataroot from cropped data directory
+# 5. Source ROS and catkin workspace environments
+# 6. Launch monarch visual odometry with roslaunch
 
 set -e  # Exit on any error
 
@@ -86,6 +94,8 @@ cd "$SCRIPT_DIR"
 
 echo "Data preparation completed successfully!"
 echo ""
+
+
 
 # Step 2: Determine the dataroot
 echo "=== Step 2: Determining dataroot ==="
