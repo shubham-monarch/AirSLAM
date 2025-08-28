@@ -34,21 +34,26 @@ def parse_args(argv: list[str] | None = None):
         "--input-file",
         required=True,
         type=Path,
-        help="Path to the SVO file to extract frames from",
+        help="Path to the SVO file to extract frames from \
+            e.g. data/svo-files/2025-08-29-10-00-00.svo",
     )
+
+    p.add_argument(
+        "--base-input-dir",
+        default="data/svo-files",
+        type=Path,
+        help="Base input directory for SVO files \
+            e.g. data/svo-files",
+    )
+
     p.add_argument(
         "--base-output-dir",
         default="data/uncropped",
         type=Path,
-        help="Base output directory where the frame extraction directory structure will be created",
+        help="Base output directory where the frame extraction directory structure will be created \
+            e.g. data/uncropped",
     )
-    p.add_argument(
-        "--svo-files-base",
-        default="data/svo-files",
-        type=Path,
-        help="Base directory containing SVO files (used to calculate relative paths)",
-    )
-
+   
     p.add_argument(
         "--resolution",
         default="640,480",
@@ -67,20 +72,21 @@ def parse_args(argv: list[str] | None = None):
     )
     return p.parse_args(argv)
 
-
-
-
-
-def ensure_cv2():  # pragma: no cover
-    if cv2 is None:
-        raise RuntimeError("OpenCV (cv2) is required to save images but is not installed.")
-
-
-def extract_frames(svo_file: Path, rel_path: Path, base_output_dir: Path, resolution: str = "640,480", frame_step: int = 10, overwrite: bool = False):
+def extract_frames(
+    svo_file_path: Path,
+    base_input_dir: Path,
+    base_output_dir: Path,
+    resolution: str = "640,480",
+    frame_step: int = 10,
+    overwrite: bool = False,
+):
     """Extract left and right images from *svo_file* into *base_output_dir / rel_path / cam0/data* and *cam1/data*"""
-    ensure_cv2()
 
-    LOGGER.info(f"Extracting frames from {svo_file}")
+    output_dir = base_output_dir / svo_file_path.relative_to(base_input_dir)
+
+    LOGGER.warning("=======================")
+    LOGGER.warning(f"Extracting frames from {svo_file_path} to {output_dir}")
+    LOGGER.warning("=======================")
 
     zed = sl.Camera()
 
@@ -90,31 +96,28 @@ def extract_frames(svo_file: Path, rel_path: Path, base_output_dir: Path, resolu
     if hasattr(sl.DEPTH_MODE, "NONE"):
         init_params.depth_mode = sl.DEPTH_MODE.NONE  # type: ignore[attr-defined]
     # Point to SVO
-    init_params.set_from_svo_file(str(svo_file))  # type: ignore[attr-defined]
+    init_params.set_from_svo_file(str(svo_file_path))  # type: ignore[attr-defined]
 
     status = zed.open(init_params)
     if status != sl.ERROR_CODE.SUCCESS:  # type: ignore[attr-defined]
-        raise RuntimeError(f"Failed to open {svo_file}: {status}")
-
-    # Prepare output directory structure: base_output_dir/rel_path/cam0/data and cam1/data
-    base_dir = (base_output_dir / rel_path).with_suffix("")  # drop .svo
+        raise RuntimeError(f"Failed to open {svo_file_path}: {status}")
 
     # Handle existing directory state
-    if base_dir.exists():
+    if output_dir.exists():
         # Directory exists and may contain previous extraction
-        if any(base_dir.iterdir()):
+        if any(output_dir.iterdir()):
             if overwrite:
-                LOGGER.warning(f"⚠️  OVERWRITING EXISTING DIRECTORY: {base_dir}")
+                LOGGER.warning(f"⚠️  OVERWRITING EXISTING DIRECTORY: {output_dir}")
                 LOGGER.warning("All existing frames in this directory will be deleted!")
-                shutil.rmtree(base_dir)
+                shutil.rmtree(output_dir)
             else:
                 LOGGER.warning(f"⚠️  SKIPPING EXTRACTION: Output directory already exists and is not empty")
-                LOGGER.warning(f"Directory: {base_dir}")
+                LOGGER.warning(f"Directory: {output_dir}")
                 LOGGER.warning("Use --overwrite flag to delete existing frames and re-extract")
                 return 0
 
-    cam0_dir = base_dir / "cam0" / "data"
-    cam1_dir = base_dir / "cam1" / "data"
+    cam0_dir = output_dir / "cam0" / "data"
+    cam1_dir = output_dir / "cam1" / "data"
 
     # Create output directories only after SVO is successfully opened
     cam0_dir.mkdir(parents=True, exist_ok=True)
@@ -138,7 +141,7 @@ def extract_frames(svo_file: Path, rel_path: Path, base_output_dir: Path, resolu
         progress_it = tqdm(
             total=total_frames,
             unit="frame",
-            desc=f"  {rel_path.name}",
+            desc=f"  {svo_file_path.name}",
             leave=False,
             position=1,  # Second line
             bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
@@ -176,9 +179,9 @@ def extract_frames(svo_file: Path, rel_path: Path, base_output_dir: Path, resolu
 
                 # Check if both saves were successful
                 if left_save_status != sl.ERROR_CODE.SUCCESS:  # type: ignore[attr-defined]
-                    LOGGER.warning(f"Failed to save left frame {saved_frame_id} for {rel_path}")
+                    LOGGER.warning(f"Failed to save left frame {saved_frame_id} for {svo_file_path}")
                 if right_save_status != sl.ERROR_CODE.SUCCESS:  # type: ignore[attr-defined]
-                    LOGGER.warning(f"Failed to save right frame {saved_frame_id} for {rel_path}")
+                    LOGGER.warning(f"Failed to save right frame {saved_frame_id} for {svo_file_path}")
 
                 if left_save_status == sl.ERROR_CODE.SUCCESS and right_save_status == sl.ERROR_CODE.SUCCESS:  # type: ignore[attr-defined]
                     saved_frame_id += 1
@@ -197,45 +200,60 @@ def extract_frames(svo_file: Path, rel_path: Path, base_output_dir: Path, resolu
 def main(argv: list[str] | None = None):
     args = parse_args(argv)
 
-    # Resolve paths (they may be relative)
-    input_file: Path = args.input_file.expanduser().resolve()
-    base_output_dir: Path = args.base_output_dir.expanduser().resolve()
-    svo_files_base: Path = args.svo_files_base.expanduser().resolve()
-    overwrite: bool = bool(getattr(args, "overwrite", False))
+    LOGGER.warning("=======================")
+    for k, v in vars(args).items():
+        LOGGER.warning(f"{k}: {v}")
+    LOGGER.warning("=======================")
+
+
+    # # Resolve paths (they may be relative)
+    # input_file: Path = args.input_file.expanduser().resolve()
+    # base_output_dir: Path = args.base_output_dir.expanduser().resolve()
+    # # svo_files_base: Path = args.svo_files_base.expanduser().resolve()
+    # overwrite: bool = bool(getattr(args, "overwrite", False))
 
     # Check if input file exists and has .svo extension
-    if not input_file.exists():
+    if not args.input_file.exists():
         LOGGER.error(f"Input file does not exist: {input_file}")
         return
 
-    if input_file.suffix.lower() != ".svo":
-        LOGGER.error(f"Input file must have .svo extension: {input_file}")
+    if args.input_file.suffix.lower() != ".svo":
+        LOGGER.error(f"Input file must have .svo extension: {args.input_file}")
         return
 
     # Find the relative path with respect to svo-files-base
-    try:
-        # Calculate relative path from svo-files-base to the input file
-        rel_path = input_file.relative_to(svo_files_base)
-        # Remove the .svo extension to get the directory name
-        rel_path = rel_path.with_suffix("")
-    except ValueError:
-        # If the input file is not under svo-files-base, use just the filename
-        LOGGER.warning(f"Input file {input_file} is not under {svo_files_base}. Using filename only.")
-        rel_path = Path(input_file.stem)
+    # try:
+    #     # Calculate relative path from svo-files-base to the input file
+    #     rel_path = input_file.relative_to(svo_files_base)
+    #     # Remove the .svo extension to get the directory name
+    #     rel_path = rel_path.with_suffix("")
+    # except ValueError:
+    #     # If the input file is not under svo-files-base, use just the filename
+    #     LOGGER.warning(f"Input file {input_file} is not under {svo_files_base}. Using filename only.")
+    #     rel_path = Path(input_file.stem)
 
-    LOGGER.info(f"Processing {input_file}")
+    # LOGGER.info(f"Processing {input_file}")
 
     start_time = time.perf_counter()
     try:
-        n_frames = extract_frames(input_file, Path(rel_path), base_output_dir, args.resolution, args.frame_step, overwrite)
+        n_frames = extract_frames(
+            args.input_file,
+            args.base_input_dir,
+            args.base_output_dir,
+            args.resolution,
+            args.frame_step,
+            args.overwrite
+        )
     except Exception as exc:
-        LOGGER.error(f"Failed to process {input_file}: {exc}")
+        LOGGER.error(f"Failed to process {args.input_file}: {exc}")
         return
 
     duration = time.perf_counter() - start_time
     fps = n_frames / duration if duration else 0
 
+    LOGGER.info("=======================")
     LOGGER.info(f"Done. Extracted {n_frames} frames in {duration:.1f}s ({fps:.1f} fps)")
+    LOGGER.info("=======================")
 
 
 if __name__ == "__main__":
