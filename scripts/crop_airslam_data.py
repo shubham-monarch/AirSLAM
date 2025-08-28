@@ -76,6 +76,22 @@ def resolve_output_path(image_path: Path, input_dir: Path, output_dir: Path, inp
         return output_dir / image_path.name
 
 
+def _resolve_target_root_for_input_dir(input_dir: Path, base_output_dir: Path, input_dir_base: Path) -> Path:
+    """Resolve the top-level target directory under base_output_dir that corresponds
+    to the given input_dir. This mirrors resolve_output_path's mapping rules but for a directory."""
+    parts = input_dir.parts
+    if 'uncropped' in parts:
+        uncropped_index = parts.index('uncropped')
+        rel_parts = parts[uncropped_index + 1:]
+        return base_output_dir / Path(*rel_parts)
+    # Fallbacks mirroring resolve_output_path
+    try:
+        rel_path = input_dir.relative_to(input_dir_base)
+        return base_output_dir / rel_path
+    except ValueError:
+        return base_output_dir
+
+
 def ensure_parent(path: Path) -> None:
     """Create parent directory of a path if needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,15 +174,18 @@ def process_all(
     successes = 0
     failures = 0
 
-    # Handle overwrite behavior for output_dir when pre-existing content found
-    if base_output_dir.exists() and any(Path(base_output_dir).iterdir()):
+    # Determine the per-sequence target root deterministically by mapping input_dir
+    target_root = _resolve_target_root_for_input_dir(input_dir, base_output_dir, input_dir_base)
+
+    # Handle overwrite behavior for the target_root only (not the entire base_output_dir)
+    if target_root.exists() and any(Path(target_root).iterdir()):
         if overwrite:
-            LOGGER.warning(f"⚠️  OVERWRITING EXISTING DIRECTORY: {base_output_dir}")
+            LOGGER.warning(f"⚠️  OVERWRITING EXISTING DIRECTORY: {target_root}")
             LOGGER.warning("All existing cropped images in this directory will be deleted!")
-            shutil.rmtree(base_output_dir)
+            shutil.rmtree(target_root)
         else:
             LOGGER.warning("⚠️  SKIPPING CROPPING: Output directory already exists and is not empty")
-            LOGGER.warning(f"Directory: {base_output_dir}")
+            LOGGER.warning(f"Directory: {target_root}")
             LOGGER.warning("Use --overwrite flag to delete existing images and re-process")
             return
 
