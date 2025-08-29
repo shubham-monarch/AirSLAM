@@ -40,25 +40,6 @@ else
     echo "Continuing with system Python..."
 fi
 
-# Function to print usage
-usage() {
-    echo "Usage: $0 --svo-file <path_to_svo_file> [OPTIONS]"
-    echo ""
-    echo "Required arguments:"
-    echo "  --svo-file PATH      Path to the input SVO file (should be in format: data/svo-files/...)"
-    echo ""
-    echo "Optional arguments:"
-    echo "  --output-dir DIR     Base output directory (default: data)"
-    echo "  --frame-step N       Extract every Nth frame (default: 10)"
-    echo "  --crop-percentage P  Crop percentage for cropping script (default: 55.0)"
-    echo "  --resolution W,H     Image resolution (default: 640,480)"
-    echo "  --overwrite          If set, overwrite existing extracted directory for this sequence"
-    echo "  --help               Show this help message"
-    echo ""
-    echo "Example:"
-    echo "  $0 --svo-file data/svo-files/test.svo --frame-step 5 --crop-percentage 50.0"
-    exit 1
-}
 
 # Default values
 SVO_FILE=""
