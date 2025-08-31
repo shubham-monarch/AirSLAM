@@ -6,6 +6,10 @@ set(CMAKE_BUILD_TYPE "release")
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 add_definitions(-w)
 
+# Add custom TensorRT installation path
+set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/home/skumar/ext_ssd/TensorRT-8.6.1.6")
+set(TENSORRT_ROOT "/home/skumar/ext_ssd/TensorRT-8.6.1.6")
+
 add_subdirectory(${PROJECT_SOURCE_DIR}/3rdparty/tensorrtbuffer)
 add_subdirectory(${PROJECT_SOURCE_DIR}/3rdparty/DBoW2)
 
@@ -49,9 +53,13 @@ include_directories(
   ${Boost_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
   ${G2O_INCLUDE_DIR}
-  ${GFLAGS_INCLUDE_DIRS} 
+  ${GFLAGS_INCLUDE_DIRS}
   ${GLOG_INCLUDE_DIRS}
+  ${TENSORRT_ROOT}/include
 )
+
+# Add TensorRT library directory
+link_directories(${TENSORRT_ROOT}/lib)
 
 add_library(${PROJECT_NAME}_lib SHARED
   src/g2o_optimization/vertex_line3d.cc
@@ -89,12 +97,13 @@ add_library(${PROJECT_NAME}_lib SHARED
 
 target_link_libraries(${PROJECT_NAME}_lib
   nvinfer
+  nvinfer_plugin
   nvonnxparser
   ${OpenCV_LIBRARIES}
   ${CUDA_LIBRARIES}
   ${Boost_LIBRARIES}
   ${G2O_LIBRARIES}
-  ${GFLAGS_LIBRARIES} 
+  ${GFLAGS_LIBRARIES}
   ${GLOG_LIBRARIES}
   yaml-cpp
   tensorrtbuffer
