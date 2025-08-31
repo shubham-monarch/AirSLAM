@@ -57,7 +57,20 @@ double ImageNameToTime(const std::string& image_name){
   size_t pos = image_name.find_last_of('.');
   if (pos != std::string::npos) {
     time_str = image_name.substr(0, pos);
-  } 
+  } else {
+    time_str = image_name;
+  }
+
+  // If the base name is purely numeric (e.g., 000123), interpret it as a frame index
+  if (!time_str.empty() && time_str.find_first_not_of("0123456789") == std::string::npos) {
+    try {
+      return static_cast<double>(std::stoll(time_str));
+    } catch (...) {
+      // Fallback to 0.0 if conversion fails unexpectedly
+      return 0.0;
+    }
+  }
+
   return StringTimeToDouble(time_str);
 }
 

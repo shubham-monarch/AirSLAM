@@ -19,34 +19,41 @@ SuperGlue::SuperGlue(const PointMatcherConfig &superglue_config) : superglue_con
 
 bool SuperGlue::build() {
     // cudaSetDevice(2);
+    std::cout << "[SuperGlue] Attempting to load existing TensorRT engine from: " << superglue_config_.engine_file << std::endl;
     if(deserialize_engine()){
+        std::cout << "[SuperGlue] Successfully loaded existing TensorRT engine" << std::endl;
         return true;
     }
-
+    std::cout << "[SuperGlue] No existing engine found, starting ONNX to TensorRT conversion from: " << superglue_config_.onnx_file << std::endl;
     auto builder = TensorRTUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger.getTRTLogger()));
     if (!builder) {
+        std::cout << "[SuperGlue] ERROR: Failed to create TensorRT builder" << std::endl;
         return false;
     }
 
     const auto explicit_batch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
     auto network = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(explicit_batch));
     if (!network) {
+        std::cout << "[SuperGlue] ERROR: Failed to create TensorRT network" << std::endl;
         return false;
     }
 
     auto config = TensorRTUniquePtr<nvinfer1::IBuilderConfig>(builder->createBuilderConfig());
     if (!config) {
+        std::cout << "[SuperGlue] ERROR: Failed to create TensorRT builder config" << std::endl;
         return false;
     }
 
     auto parser = TensorRTUniquePtr<nvonnxparser::IParser>(
             nvonnxparser::createParser(*network, gLogger.getTRTLogger()));
     if (!parser) {
+        std::cout << "[SuperGlue] ERROR: Failed to create ONNX parser" << std::endl;
         return false;
     }
 
     auto profile = builder->createOptimizationProfile();
     if (!profile) {
+        std::cout << "[SuperGlue] ERROR: Failed to create optimization profile" << std::endl;
         return false;
     }
     profile->setDimensions(superglue_config_.input_tensor_names[0].c_str(), nvinfer1::OptProfileSelector::kMIN, nvinfer1::Dims3(1, 1, 2));
@@ -77,31 +84,38 @@ bool SuperGlue::build() {
 
     auto constructed = construct_network(builder, network, config, parser);
     if (!constructed) {
+        std::cout << "[SuperGlue] ERROR: Failed to construct network from ONNX file" << std::endl;
         return false;
     }
 
     auto profile_stream = makeCudaStream();
     if (!profile_stream) {
+        std::cout << "[SuperGlue] ERROR: Failed to create CUDA stream" << std::endl;
         return false;
     }
     config->setProfileStream(*profile_stream);
 
+    std::cout << "[SuperGlue] Building serialized network..." << std::endl;
     TensorRTUniquePtr<nvinfer1::IHostMemory> plan{builder->buildSerializedNetwork(*network, *config)};
     if (!plan) {
+        std::cout << "[SuperGlue] ERROR: Failed to build serialized network" << std::endl;
         return false;
     }
 
     TensorRTUniquePtr<nvinfer1::IRuntime> runtime{nvinfer1::createInferRuntime(gLogger.getTRTLogger())};
     if (!runtime) {
+        std::cout << "[SuperGlue] ERROR: Failed to create TensorRT runtime" << std::endl;
         return false;
     }
 
     engine_ = std::shared_ptr<nvinfer1::ICudaEngine>(runtime->deserializeCudaEngine(plan->data(), plan->size()));
     if (!engine_) {
+        std::cout << "[SuperGlue] ERROR: Failed to deserialize CUDA engine" << std::endl;
         return false;
     }
 
     save_engine();
+    std::cout << "[SuperGlue] ONNX to TensorRT conversion completed successfully, engine saved to: " << superglue_config_.engine_file << std::endl;
 
     ASSERT(network->getNbInputs() == 6);
     keypoints_0_dims_ = network->getInput(0)->getDimensions();

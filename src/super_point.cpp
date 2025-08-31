@@ -17,30 +17,38 @@ SuperPoint::SuperPoint(const SuperPointConfig &super_point_config): resized_widt
 
 bool SuperPoint::build() {
     // cudaSetDevice(2);
+    std::cout << "[SuperPoint] Attempting to load existing TensorRT engine from: " << super_point_config_.engine_file << std::endl;
     if(deserialize_engine()){
+        std::cout << "[SuperPoint] Successfully loaded existing TensorRT engine" << std::endl;
         return true;
     }
+    std::cout << "[SuperPoint] No existing engine found, starting ONNX to TensorRT conversion from: " << super_point_config_.onnx_file << std::endl;
     auto builder = TensorRTUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger.getTRTLogger()));
     if (!builder) {
+        std::cout << "[SuperPoint] ERROR: Failed to create TensorRT builder" << std::endl;
         return false;
     }
     const auto explicit_batch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
     auto network = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(explicit_batch));
     if (!network) {
+        std::cout << "[SuperPoint] ERROR: Failed to create TensorRT network" << std::endl;
         return false;
     }
     auto config = TensorRTUniquePtr<nvinfer1::IBuilderConfig>(builder->createBuilderConfig());
     if (!config) {
+        std::cout << "[SuperPoint] ERROR: Failed to create TensorRT builder config" << std::endl;
         return false;
     }
     auto parser = TensorRTUniquePtr<nvonnxparser::IParser>(
             nvonnxparser::createParser(*network, gLogger.getTRTLogger()));
     if (!parser) {
+        std::cout << "[SuperPoint] ERROR: Failed to create ONNX parser" << std::endl;
         return false;
     }
     
     auto profile = builder->createOptimizationProfile();
     if (!profile) {
+        std::cout << "[SuperPoint] ERROR: Failed to create optimization profile" << std::endl;
         return false;
     }
     profile->setDimensions(super_point_config_.input_tensor_names[0].c_str(),
@@ -53,26 +61,33 @@ bool SuperPoint::build() {
     
     auto constructed = construct_network(builder, network, config, parser);
     if (!constructed) {
+        std::cout << "[SuperPoint] ERROR: Failed to construct network from ONNX file" << std::endl;
         return false;
     }
     auto profile_stream = makeCudaStream();
     if (!profile_stream) {
+        std::cout << "[SuperPoint] ERROR: Failed to create CUDA stream" << std::endl;
         return false;
     }
     config->setProfileStream(*profile_stream);
+    std::cout << "[SuperPoint] Building serialized network..." << std::endl;
     TensorRTUniquePtr<nvinfer1::IHostMemory> plan{builder->buildSerializedNetwork(*network, *config)};
     if (!plan) {
+        std::cout << "[SuperPoint] ERROR: Failed to build serialized network" << std::endl;
         return false;
     }
     TensorRTUniquePtr<nvinfer1::IRuntime> runtime{nvinfer1::createInferRuntime(gLogger.getTRTLogger())};
     if (!runtime) {
+        std::cout << "[SuperPoint] ERROR: Failed to create TensorRT runtime" << std::endl;
         return false;
     }
     engine_ = std::shared_ptr<nvinfer1::ICudaEngine>(runtime->deserializeCudaEngine(plan->data(), plan->size()));
     if (!engine_) {
+        std::cout << "[SuperPoint] ERROR: Failed to deserialize CUDA engine" << std::endl;
         return false;
     }
     save_engine();
+    std::cout << "[SuperPoint] ONNX to TensorRT conversion completed successfully, engine saved to: " << super_point_config_.engine_file << std::endl;
     ASSERT(network->getNbInputs() == 1);
     input_dims_ = network->getInput(0)->getDimensions();
     ASSERT(input_dims_.nbDims == 4);

@@ -22,7 +22,9 @@ PLNet::PLNet(PLNetConfig& plnet_config) : plnet_config_(plnet_config), engine0_(
 }
 
 bool PLNet::build() {
+  std::cout << "[PLNet] Attempting to load existing TensorRT engines from: " << plnet_config_.plnet_s0_engine << " and " << plnet_config_.plnet_s1_engine << std::endl;
   if (deserialize_engine()) {
+    std::cout << "[PLNet] Successfully loaded existing TensorRT engines" << std::endl;
     if (!context0_) {
       context0_ = TensorRTUniquePtr<nvinfer1::IExecutionContext>(engine0_->createExecutionContext());
       if (!context0_) {
@@ -48,26 +50,33 @@ bool PLNet::build() {
     loi_features_aux_index_ = engine1_->getBindingIndex("loi_features_aux");
     return true;
   }
+  std::cout << "[PLNet] No existing engines found, starting ONNX to TensorRT conversion" << std::endl;
+  std::cout << "[PLNet] Stage 1: Converting " << plnet_config_.plnet_s0_onnx << " to " << plnet_config_.plnet_s0_engine << std::endl;
   auto builder_stage1 = TensorRTUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger.getTRTLogger()));
   if (!builder_stage1) {
+    std::cout << "[PLNet] ERROR: Failed to create TensorRT builder for stage 1" << std::endl;
     return false;
   }
   const auto explicit_batch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
   auto network_stage1 = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder_stage1->createNetworkV2(explicit_batch));
   if (!network_stage1) {
+    std::cout << "[PLNet] ERROR: Failed to create TensorRT network for stage 1" << std::endl;
     return false;
   }
   auto config_stage1 = TensorRTUniquePtr<nvinfer1::IBuilderConfig>(builder_stage1->createBuilderConfig());
   if (!config_stage1) {
+    std::cout << "[PLNet] ERROR: Failed to create TensorRT builder config for stage 1" << std::endl;
     return false;
   }
   auto parser_stage1 = TensorRTUniquePtr<nvonnxparser::IParser>(nvonnxparser::createParser(*network_stage1, gLogger.getTRTLogger()));
   if (!parser_stage1) {
+    std::cout << "[PLNet] ERROR: Failed to create ONNX parser for stage 1" << std::endl;
     return false;
   }
 
   auto profile_stage1 = builder_stage1->createOptimizationProfile();
   if (!profile_stage1) {
+    std::cout << "[PLNet] ERROR: Failed to create optimization profile for stage 1" << std::endl;
     return false;
   }
   profile_stage1->setDimensions("input", nvinfer1::OptProfileSelector::kMIN, nvinfer1::Dims4(1, 1, 100, 100));
@@ -77,25 +86,32 @@ bool PLNet::build() {
 
   auto constructed_stage1 = construct_network_stage1(builder_stage1, network_stage1, config_stage1, parser_stage1);
   if (!constructed_stage1) {
+    std::cout << "[PLNet] ERROR: Failed to construct network from ONNX file for stage 1" << std::endl;
     return false;
   }
   auto profile_stream_stage1 = makeCudaStream();
   if (!profile_stream_stage1) {
+    std::cout << "[PLNet] ERROR: Failed to create CUDA stream for stage 1" << std::endl;
     return false;
   }
   config_stage1->setProfileStream(*profile_stream_stage1);
+  std::cout << "[PLNet] Building serialized network for stage 1..." << std::endl;
   TensorRTUniquePtr<nvinfer1::IHostMemory> plan_stage1{builder_stage1->buildSerializedNetwork(*network_stage1, *config_stage1)};
   if (!plan_stage1) {
+    std::cout << "[PLNet] ERROR: Failed to build serialized network for stage 1" << std::endl;
     return false;
   }
   TensorRTUniquePtr<nvinfer1::IRuntime> runtime_stage1{nvinfer1::createInferRuntime(gLogger.getTRTLogger())};
   if (!runtime_stage1) {
+    std::cout << "[PLNet] ERROR: Failed to create TensorRT runtime for stage 1" << std::endl;
     return false;
   }
   engine0_ = std::shared_ptr<nvinfer1::ICudaEngine>(runtime_stage1->deserializeCudaEngine(plan_stage1->data(), plan_stage1->size()));
   if (!engine0_) {
+    std::cout << "[PLNet] ERROR: Failed to deserialize CUDA engine for stage 1" << std::endl;
     return false;
   }
+  std::cout << "[PLNet] Stage 1 completed successfully" << std::endl;
 
   if (!context0_) {
     context0_ = TensorRTUniquePtr<nvinfer1::IExecutionContext>(engine0_->createExecutionContext());
@@ -106,25 +122,31 @@ bool PLNet::build() {
 
   image_input_index_ = engine0_->getBindingIndex("input");
 
+  std::cout << "[PLNet] Stage 2: Converting " << plnet_config_.plnet_s1_onnx << " to " << plnet_config_.plnet_s1_engine << std::endl;
   auto builder_stage2 = TensorRTUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger.getTRTLogger()));
   if (!builder_stage2) {
+    std::cout << "[PLNet] ERROR: Failed to create TensorRT builder for stage 2" << std::endl;
     return false;
   }
   auto network_stage2 = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder_stage2->createNetworkV2(explicit_batch));
   if (!network_stage2) {
+    std::cout << "[PLNet] ERROR: Failed to create TensorRT network for stage 2" << std::endl;
     return false;
   }
   auto config_stage2 = TensorRTUniquePtr<nvinfer1::IBuilderConfig>(builder_stage2->createBuilderConfig());
   if (!config_stage2) {
+    std::cout << "[PLNet] ERROR: Failed to create TensorRT builder config for stage 2" << std::endl;
     return false;
   }
   auto parser_stage2 = TensorRTUniquePtr<nvonnxparser::IParser>(nvonnxparser::createParser(*network_stage2, gLogger.getTRTLogger()));
   if (!parser_stage2) {
+    std::cout << "[PLNet] ERROR: Failed to create ONNX parser for stage 2" << std::endl;
     return false;
   }
 
   auto profile_stage2 = builder_stage2->createOptimizationProfile();
   if (!profile_stage2) {
+    std::cout << "[PLNet] ERROR: Failed to create optimization profile for stage 2" << std::endl;
     return false;
   }
   profile_stage2->setDimensions("juncs_pred", nvinfer1::OptProfileSelector::kMIN, nvinfer1::Dims2(1, 2));
@@ -155,26 +177,34 @@ bool PLNet::build() {
 
   auto constructed_stage2 = construct_network_stage2(builder_stage2, network_stage2, config_stage2, parser_stage2);
   if (!constructed_stage2) {
+    std::cout << "[PLNet] ERROR: Failed to construct network from ONNX file for stage 2" << std::endl;
     return false;
   }
   auto profile_stream_stage2 = makeCudaStream();
   if (!profile_stream_stage2) {
+    std::cout << "[PLNet] ERROR: Failed to create CUDA stream for stage 2" << std::endl;
     return false;
   }
   config_stage2->setProfileStream(*profile_stream_stage2);
+  std::cout << "[PLNet] Building serialized network for stage 2..." << std::endl;
   TensorRTUniquePtr<nvinfer1::IHostMemory> plan_stage2{builder_stage2->buildSerializedNetwork(*network_stage2, *config_stage2)};
   if (!plan_stage2) {
+    std::cout << "[PLNet] ERROR: Failed to build serialized network for stage 2" << std::endl;
     return false;
   }
   TensorRTUniquePtr<nvinfer1::IRuntime> runtime_stage2{nvinfer1::createInferRuntime(gLogger.getTRTLogger())};
   if (!runtime_stage2) {
+    std::cout << "[PLNet] ERROR: Failed to create TensorRT runtime for stage 2" << std::endl;
     return false;
   }
   engine1_ = std::shared_ptr<nvinfer1::ICudaEngine>(runtime_stage2->deserializeCudaEngine(plan_stage2->data(), plan_stage2->size()));
   if (!engine1_) {
+    std::cout << "[PLNet] ERROR: Failed to deserialize CUDA engine for stage 2" << std::endl;
     return false;
   }
   save_engine();
+  std::cout << "[PLNet] Stage 2 completed successfully" << std::endl;
+  std::cout << "[PLNet] ONNX to TensorRT conversion completed successfully, engines saved to: " << plnet_config_.plnet_s0_engine << " and " << plnet_config_.plnet_s1_engine << std::endl;
 
   if (!context1_) {
     context1_ = TensorRTUniquePtr<nvinfer1::IExecutionContext>(engine1_->createExecutionContext());
