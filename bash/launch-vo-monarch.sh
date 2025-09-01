@@ -60,11 +60,12 @@ done
 
 # Step 1: Prepare SVO data
 echo "=== [launch-vo-monarch.sh] Step 1: calling prepare-svo-data.sh ==="
+echo "OVERWRITE variable value: $OVERWRITE"
 
 ./bash/prepare-svo-data.sh \
     --svo-file "$SVO_FILE" \
     --frame-step "$FRAME_STEP" \
-    
+    $( [[ "$OVERWRITE" -eq 1 ]] && echo "--overwrite" )
 
 # Step 2: Determine the dataroot args for monarch.launch
 echo "=== [launch-vo-monarch.sh] Step 2: Determining dataroot args for monarch.launch ==="
@@ -74,7 +75,7 @@ echo "=== [launch-vo-monarch.sh] Step 2: Determining dataroot args for monarch.l
 RELATIVE_PATH=${SVO_FILE#$UNCROPPED_INPUT_BASE_DIR/}
 
 # Append relative path to CROPPED_OUTPUT_BASE_DIR and workspace/src/AirSLAM
-DATAROOT="workspace/src/AirSLAM/$CROPPED_OUTPUT_BASE_DIR/$RELATIVE_PATH"
+DATAROOT="/workspace/src/AirSLAM/$CROPPED_OUTPUT_BASE_DIR/$RELATIVE_PATH"
 
 
 
@@ -87,7 +88,7 @@ source ../../devel/setup.bash
 # Launch the monarch visual odometry with the correct dataroot
 echo "Launching monarch.launch with dataroot: $DATAROOT"
 
-roslaunch air_slam monarch.launch \
+roslaunch /workspace/src/AirSLAM/launch/visual_odometry/monarch.launch \
     dataroot:="$DATAROOT"
 
 echo ""

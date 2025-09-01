@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None):
 
     # Check if input file exists and has .svo extension
     if not args.input_file.exists():
-        LOGGER.error(f"Input file does not exist: {input_file}")
+        LOGGER.error(f"Input file does not exist: {args.input_file}")
         return
 
     if args.input_file.suffix.lower() != ".svo":

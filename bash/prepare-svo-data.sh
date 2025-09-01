@@ -32,8 +32,8 @@ if [[ ! -f "CMakeLists.txt" ]] || [[ ! -d "scripts" ]] || [[ ! -d "bash" ]]; the
 fi
 
 # Set up virtual environment early
-if [[ -f ".venv/bin/activate" ]]; then
-    source .venv/bin/activate
+if [[ -f ".venv38/bin/activate" ]]; then
+    source .venv38/bin/activate
     echo "Activated virtual environment"
 else
     echo "Warning: Virtual environment not found at .venv/bin/activate"
@@ -118,7 +118,7 @@ echo ""
 # Use a temp file to receive the output dir from the extractor
 OUTFILE="$(mktemp)"
 
-python -m scripts.generate_uncropped_svo_frames \
+python3 -m scripts.generate_uncropped_svo_frames \
     --input-file "$SVO_FILE" \
     --frame-step "$FRAME_STEP" \
     --resolution "$RESOLUTION" \
@@ -154,7 +154,7 @@ echo "--base-output-dir: $CROPPED_OUTPUT_BASE_DIR"
 echo "--crop-percentage: $CROP_PERCENTAGE"
 echo ""
 
-python -m scripts.generate_cropped_svo_frames \
+python3 -m scripts.generate_cropped_svo_frames \
     --input-dir "$UNCROPPED_OUTPUT_DIR" \
     --base-input-dir "$UNCROPPED_OUTPUT_BASE_DIR" \
     --base-output-dir "$CROPPED_OUTPUT_BASE_DIR" \
