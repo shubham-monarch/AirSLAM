@@ -25,6 +25,6 @@
 #   # Custom output directories
 #   bash/launch-docker-container-docker.sh --svo-file data/svo-files/test/test.svo --uncropped-output-base-dir data/test_uncropped --cropped-output-base-dir data/test_cropped
 
-sudo docker exec -it air_slam bash -c "cd /workspace/src/AirSLAM && bash bash/launch-vo-monarch.sh $@"
+sudo docker exec -it air_slam_modified bash -c "cd /workspace/src/AirSLAM && bash bash/launch-vo-monarch.sh $@"
 
 echo "✅ Docker visual odometry launch completed successfully!"

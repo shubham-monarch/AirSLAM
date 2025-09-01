@@ -29,7 +29,7 @@ cd /home/skumar/ext_ssd/catkin_ws
 # Launch the container with all necessary mounts and configurations
 sudo docker run -it \
     --env DISPLAY=$DISPLAY \
-    --env NVIDIA_DRIVER_CAPABILITIES=all \
+re    --env NVIDIA_DRIVER_CAPABILITIES=all \
     --volume /tmp/.X11-unix:/tmp/.X11-unix \
     --privileged \
     --runtime nvidia \
@@ -37,8 +37,8 @@ sudo docker run -it \
     --volume /home/skumar/ext_ssd/catkin_ws:/workspace \
     --volume /home/skumar/ext_ssd:/home/skumar/ext_ssd \
     --workdir /workspace \
-    --name air_slam \
-    xukuanhit/air_slam:v4 \
+    --name air_slam_modified \
+    air_slam_modified:v1 \
     /bin/bash
 
 echo "AirSLAM container stopped."
